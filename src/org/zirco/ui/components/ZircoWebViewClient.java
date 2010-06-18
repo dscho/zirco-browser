@@ -22,6 +22,9 @@ import android.graphics.Bitmap;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
+/**
+ * Convenient extension of WebViewClient.
+ */
 public class ZircoWebViewClient extends WebViewClient {
 	
 	@Override
@@ -47,9 +50,16 @@ public class ZircoWebViewClient extends WebViewClient {
 	@Override
 	public boolean shouldOverrideUrlLoading(WebView view, String url) {
 		
-		EventController.getInstance().fireWebEvent(EventConstants.EVT_WEB_ON_URL_LOADING, url);				
+		if (url.startsWith("vnd.youtube")) {
+			
+			EventController.getInstance().fireWebEvent(EventConstants.EVT_YOUTUBE_VIDEO, url);						
+			return true;
+			
+		} else {
 		
-		return false;
+			EventController.getInstance().fireWebEvent(EventConstants.EVT_WEB_ON_URL_LOADING, url);				
+			return false;
+		}
 	}
 
 }

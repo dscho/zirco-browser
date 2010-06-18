@@ -29,6 +29,9 @@ import android.widget.ImageButton;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
+/**
+ * Download list activity.
+ */
 public class DownloadsListActivity extends ListActivity implements IDownloadEventsListener {
 
 	private DownloadListAdapter mAdapter;
@@ -45,13 +48,16 @@ public class DownloadsListActivity extends ListActivity implements IDownloadEven
         fillData();
 	}
 	
+	/**
+	 * Fill the download list.
+	 */
 	private void fillData() {
 		mAdapter = new DownloadListAdapter(this, Controller.getInstance().getDownloadList());
 		setListAdapter(mAdapter);
 	}
 
 	@Override
-	public void onDownloadbEvent(String event, Object data) {
+	public void onDownloadEvent(String event, Object data) {
 		if (event.equals(EventConstants.EVT_DOWNLOAD_ON_START)) {
 			fillData();
 		} else if (event.equals(EventConstants.EVT_DOWNLOAD_ON_PROGRESS)) {				
