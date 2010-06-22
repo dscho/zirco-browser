@@ -35,17 +35,14 @@
     <string name="Main.MenuPreferences">Preferences</string>
     <string name="Main.MenuOpen">Open</string>
     <string name="Main.MenuOpenNewTab">Open in new tab</string>
-    <string name="Main.MenuDownload">Download</string>
-    <string name="Main.SDCardErrorTitle">SD Card unavailable</string>
-    <string name="Main.SDCardErrorNoSDMsg">No SD Card found.</string>
-    <string name="Main.SDCardErrorSDUnavailable">SD Card is not available.</string>
+    <string name="Main.MenuDownload">Download</string>   
     <string name="Main.DownloadStartedMsg">Download started.</string>
     <string name="Main.DownloadFinishedMsg">Download finished.</string>
     <string name="Main.DownloadErrorMsg">Download error: %s</string>
     <string name="Main.ToastTabSwitchMessage">Tab %s</string>
     <string name="Main.ToastTabSwitchFullMessage">Tab %s: %s</string>
-    <string name="Main.YoutubeErrorTitle">Unable to open video</string>
-    <string name="Main.YoutubeErrorMessage">You may not have an application able to play Youtube videos.</string>
+    <string name="Main.VndErrorTitle">Unable to open url</string>
+    <string name="Main.VndErrorMessage">You may not have an application able to open this url: %s.</string>
     
     <string name="BookmarksListActivity.Title">Zirco Browser - Bookmarks</string>
     <string name="BookmarksListActivity.MenuSortMode">Sort by</string>
@@ -55,11 +52,17 @@
     <string name="BookmarksListActivity.MenuEditBookmark">Edit bookmark</string>
     <string name="BookmarksListActivity.MenuDeleteBookmark">Delete bookmark</string>
     <string name="BookmarksListActivity.ImportBookmarks">Import bookmarks</string>
+    <string name="BookmarksListActivity.ExportBookmarks">Export bookmarks</string>
     <string name="BookmarksListActivity.ClearBookmarks">Clear bookmarks</string>
     <string name="BookmarksListActivity.ImportingBookmarks">Importing bookmarks...</string>
+    <string name="BookmarksListActivity.ExportingBookmarks">Exporting bookmarks...</string>
     <string name="BookmarksListActivity.ClearingBookmarks">Clearing bookmarks...</string>
     <string name="BookmarksListActivity.AlphaSortMode">Alphabetical</string>
     <string name="BookmarksListActivity.RecentSortMode">Most recent</string>
+    <string name="BookmarksListActivity.ImportSource">Choose the import source</string>
+    <string name="BookmarksListActivity.AndroidImportSource">Android browser bookmarks</string>
+    <string name="BookmarksListActivity.ExportDialogTitle">Bookmarks export</string>
+    <string name="BookmarksListActivity.ExportDialogMessage">Bookmarks will be exported to %s.</string>
     
     <string name="EditBookmarkActivity.Title">Edit bookmark</string>
     <string name="EditBookmarkActivity.TitleAdd">Add bookmark</string>
@@ -152,6 +155,23 @@
 		<item>5000</item>
 	</string-array>
 	
+	<string name="PreferencesActivity.BubblePositionPreferenceTitle">Bubble position</string>
+    <string name="PreferencesActivity.BubblePositionPreferenceSummary">Position of the "bubble".</string>
+    
+    <string name="PreferencesActivity.BubbleRight">Right</string>
+    <string name="PreferencesActivity.BubbleLeft">Left</string>
+    <string name="PreferencesActivity.BubbleBoth">Both</string>
+    <string-array name="BubblePositionEntries">
+		<item>@string/PreferencesActivity.BubbleRight</item>
+		<item>@string/PreferencesActivity.BubbleLeft</item>
+		<item>@string/PreferencesActivity.BubbleBoth</item>
+	</string-array>
+    <string-array name="BubblePositionValues">
+		<item>right</item>
+		<item>left</item>
+		<item>both</item>
+	</string-array>
+	
 	<string name="PreferencesActivity.AdBlockerSettingsCategoryTitle">Ad-blocker settings</string>
 	<string name="PreferencesActivity.EnableAdBlockerPreferenceTitle">Enable Ad-blocker</string>
     <string name="PreferencesActivity.EnableAdBlockerPreferenceSummary">Ad-blocker will not work if JavaScript is not enabled.</string>
@@ -176,6 +196,9 @@
     <string name="Commons.ClearingCache">Clearing cache...</string>
     <string name="Commons.ClearCookies">Clear cookies</string>
     <string name="Commons.ClearingCookies">Clearing cookies...</string>
+    <string name="Commons.SDCardErrorTitle">SD Card unavailable</string>
+    <string name="Commons.SDCardErrorNoSDMsg">No SD Card found.</string>
+    <string name="Commons.SDCardErrorSDUnavailable">SD Card is not available.</string>
     
     <string name="DATE_FORMAT_ISO8601">yyyy-MM-dd\'T\'HH:mm:ss.SSS</string>
     

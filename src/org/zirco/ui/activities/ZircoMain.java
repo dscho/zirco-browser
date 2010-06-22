@@ -15,10 +15,6 @@
 
 package org.zirco.ui.activities;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.Iterator;
@@ -34,9 +30,11 @@ import org.zirco.model.DbAdapter;
 import org.zirco.model.DownloadItem;
 import org.zirco.ui.components.ZircoWebView;
 import org.zirco.ui.components.ZircoWebViewClient;
+import org.zirco.ui.runnables.BookmarkThumbnailUpdater;
 import org.zirco.ui.runnables.HideToolbarsRunnable;
 import org.zirco.ui.runnables.HistoryUpdater;
 import org.zirco.utils.AnimationManager;
+import org.zirco.utils.ApplicationUtils;
 import org.zirco.utils.Constants;
 
 import android.app.Activity;
@@ -48,11 +46,9 @@ import android.content.res.Configuration;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
-import android.os.Environment;
 import android.os.Message;
 import android.preference.PreferenceManager;
 import android.util.FloatMath;
-import android.util.Log;
 import android.view.ContextMenu;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
@@ -67,11 +63,13 @@ import android.view.View.OnClickListener;
 import android.view.View.OnTouchListener;
 import android.view.inputmethod.InputMethodManager;
 import android.webkit.DownloadListener;
+import android.webkit.JsPromptResult;
 import android.webkit.JsResult;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.webkit.WebView.HitTestResult;
 import android.widget.AutoCompleteTextView;
+import android.widget.EditText;
 import android.widget.FilterQueryProvider;
 import android.widget.ImageButton;
 import android.widget.ImageView;
@@ -79,6 +77,7 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.RelativeLayout;
 import android.widget.SimpleCursorAdapter;
+import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.ViewFlipper;
 import android.widget.SimpleCursorAdapter.CursorToStringConverter;
@@ -121,7 +120,8 @@ public class ZircoMain extends Activity implements IWebEventListener, IToolbarsC
 	private ImageButton mGoButton;
 	private ProgressBar mProgressBar;	
 	
-	private ImageView mBubleView;
+	private ImageView mBubbleRightView;
+	private ImageView mBubbleLeftView;
 	
 	private ZircoWebView mCurrentWebView;
 	private List<ZircoWebView> mWebViews;
@@ -139,8 +139,6 @@ public class ZircoMain extends Activity implements IWebEventListener, IToolbarsC
 	private HideToolbarsRunnable mHideToolbarsRunnable;
 	
 	private ViewFlipper mViewFlipper;
-	
-	private String mAdSweepString = null;
 	
 	private DbAdapter mDbAdapter = null;
 	
@@ -234,14 +232,23 @@ public class ZircoMain extends Activity implements IWebEventListener, IToolbarsC
     	mWebViews = new ArrayList<ZircoWebView>();
     	Controller.getInstance().setWebViewList(mWebViews);
     	
-    	mBubleView = (ImageView) findViewById(R.id.BubleView);
-    	mBubleView.setOnClickListener(new View.OnClickListener() {		
+    	mBubbleRightView = (ImageView) findViewById(R.id.BubbleRightView);
+    	mBubbleRightView.setOnClickListener(new View.OnClickListener() {
+    		@Override
 			public void onClick(View v) {
 				setToolbarsVisibility(true);				
 			}
-		});
+		});    	
+    	mBubbleRightView.setVisibility(View.GONE);
     	
-    	mBubleView.setVisibility(View.GONE);
+    	mBubbleLeftView = (ImageView) findViewById(R.id.BubbleLeftView);
+    	mBubbleLeftView.setOnClickListener(new View.OnClickListener() {			
+			@Override
+			public void onClick(View v) {
+				setToolbarsVisibility(true);
+			}
+		});
+    	mBubbleLeftView.setVisibility(View.GONE);
     	
     	mViewFlipper = (ViewFlipper) findViewById(R.id.ViewFlipper);
     	
@@ -401,6 +408,9 @@ public class ZircoMain extends Activity implements IWebEventListener, IToolbarsC
     	
     	applyQuickButtonPreferences();
     	
+    	// To update to Bubble position.
+    	setToolbarsVisibility(false);
+    	
     	Iterator<ZircoWebView> iter = mWebViews.iterator();
     	while (iter.hasNext()) {
     		iter.next().initializeOptions();
@@ -529,7 +539,45 @@ public class ZircoMain extends Activity implements IWebEventListener, IToolbarsC
 				.show();
 
 				return true;
-			}								
+			}
+
+			@Override
+			public boolean onJsPrompt(WebView view, String url, String message, String defaultValue, final JsPromptResult result) {
+				
+				final LayoutInflater factory = LayoutInflater.from(ZircoMain.this);
+                final View v = factory.inflate(R.layout.javascriptpromptdialog, null);
+                ((TextView) v.findViewById(R.id.JavaScriptPromptMessage)).setText(message);
+                ((EditText) v.findViewById(R.id.JavaScriptPromptInput)).setText(defaultValue);
+
+                new AlertDialog.Builder(ZircoMain.this)
+                    .setTitle(R.string.Commons_JavaScriptDialog)
+                    .setView(v)
+                    .setPositiveButton(android.R.string.ok,
+                            new DialogInterface.OnClickListener() {
+                                public void onClick(DialogInterface dialog, int whichButton) {
+                                    String value = ((EditText) v.findViewById(R.id.JavaScriptPromptInput)).getText()
+                                            .toString();
+                                    result.confirm(value);
+                                }
+                            })
+                    .setNegativeButton(android.R.string.cancel,
+                            new DialogInterface.OnClickListener() {
+                                public void onClick(DialogInterface dialog, int whichButton) {
+                                    result.cancel();
+                                }
+                            })
+                    .setOnCancelListener(
+                            new DialogInterface.OnCancelListener() {
+                                public void onCancel(DialogInterface dialog) {
+                                    result.cancel();
+                                }
+                            })
+                    .show();
+                
+                return true;
+
+			}		
+			
 		});
     }
     
@@ -542,32 +590,14 @@ public class ZircoMain extends Activity implements IWebEventListener, IToolbarsC
      * @param contentLength The content length.
      */
     private void doDownloadStart(String url, String userAgent, String contentDisposition, String mimetype, long contentLength) {
-    	    			
-		// Check to see if we have an SDCard
-        String status = Environment.getExternalStorageState();
-        if (!status.equals(Environment.MEDIA_MOUNTED)) {
-            String msg;
+    	    
+        if (ApplicationUtils.checkCardState(this)) {
+        	DownloadItem item = new DownloadItem(url);
+        	Controller.getInstance().addToDownload(item);
+        	item.startDownload();
 
-            // Check to see if the SDCard is busy, same as the music app
-            if (status.equals(Environment.MEDIA_SHARED)) {
-                msg = getString(R.string.Main_SDCardErrorSDUnavailable);
-            } else {
-                msg = getString(R.string.Main_SDCardErrorNoSDMsg);
-            }
-
-            new AlertDialog.Builder(this)
-                .setTitle(R.string.Main_SDCardErrorTitle)
-                .setIcon(android.R.drawable.ic_dialog_alert)
-                .setMessage(msg)
-                .setPositiveButton(R.string.Commons_Ok, null)
-                .show();
-            return;
+        	Toast.makeText(this, getString(R.string.Main_DownloadStartedMsg), Toast.LENGTH_SHORT).show();
         }
-        DownloadItem item = new DownloadItem(url);
-        Controller.getInstance().addToDownload(item);
-        item.startDownload();
-        
-        Toast.makeText(this, getString(R.string.Main_DownloadStartedMsg), Toast.LENGTH_SHORT).show();
     }
     
     /**
@@ -641,7 +671,8 @@ public class ZircoMain extends Activity implements IWebEventListener, IToolbarsC
     		mTopBar.setVisibility(View.VISIBLE);
     		mBottomBar.setVisibility(View.VISIBLE);
     		
-    		mBubleView.setVisibility(View.GONE);    		    		    		 
+    		mBubbleRightView.setVisibility(View.GONE);
+    		mBubbleLeftView.setVisibility(View.GONE);
     		
     		startToolbarsHideRunnable();
     		
@@ -652,7 +683,21 @@ public class ZircoMain extends Activity implements IWebEventListener, IToolbarsC
     		mTopBar.setVisibility(View.GONE);
     		mBottomBar.setVisibility(View.GONE);
     		
-			mBubleView.setVisibility(View.VISIBLE);
+    		String bubblePosition = Controller.getInstance().getPreferences().getString(Constants.PREFERENCES_GENERAL_BUBBLE_POSITION, "right");
+    		
+    		if (bubblePosition.equals("right")) {
+    			mBubbleRightView.setVisibility(View.VISIBLE);
+    			mBubbleLeftView.setVisibility(View.GONE);
+    		} else if (bubblePosition.equals("left")) {
+    			mBubbleRightView.setVisibility(View.GONE);
+    			mBubbleLeftView.setVisibility(View.VISIBLE);
+    		} else if (bubblePosition.equals("both")) {
+    			mBubbleRightView.setVisibility(View.VISIBLE);
+    			mBubbleLeftView.setVisibility(View.VISIBLE);
+    		} else {
+    			mBubbleRightView.setVisibility(View.VISIBLE);
+    			mBubbleLeftView.setVisibility(View.GONE);
+    		}
 			
 			mUrlBarVisible = false;
     	}
@@ -763,19 +808,16 @@ public class ZircoMain extends Activity implements IWebEventListener, IToolbarsC
     	mCurrentWebView.goForward();
     }
 
-    
-    /*
 	@Override
 	public boolean onKeyLongPress(int keyCode, KeyEvent event) {
 		
 		switch (keyCode) {
-		case KeyEvent.KEYCODE_BACK:
-			finish();
+		case KeyEvent.KEYCODE_BACK:			
+			this.moveTaskToBack(true);
 			return true;
 		default: return super.onKeyLongPress(keyCode, event);
 		}
 	}
-	*/
 
 	@Override
 	public boolean onKeyUp(int keyCode, KeyEvent event) {
@@ -786,7 +828,15 @@ public class ZircoMain extends Activity implements IWebEventListener, IToolbarsC
 				mCurrentWebView.goBack();				
 			}
 			return true;
-			
+		
+		default: return super.onKeyUp(keyCode, event);
+		}
+	}
+	
+	@Override
+	public boolean onKeyDown(int keyCode, KeyEvent event) {
+		
+		switch (keyCode) {
 		case KeyEvent.KEYCODE_VOLUME_DOWN:
 			mCurrentWebView.zoomIn();
 			return true;
@@ -909,7 +959,7 @@ public class ZircoMain extends Activity implements IWebEventListener, IToolbarsC
 	}
 	
 	/**
-	 * Open prefenreces.
+	 * Open preferences.
 	 */
 	private void openPreferences() {
 		Intent preferencesActivity = new Intent(this, PreferencesActivity.class);
@@ -1011,13 +1061,11 @@ public class ZircoMain extends Activity implements IWebEventListener, IToolbarsC
 	 * @param event The event.
 	 * @return The distance between the two points.
 	 */
-	/*
 	private float computeSpacing(MotionEvent event) {
 		float x = event.getX(0) - event.getX(1);
 		float y = event.getY(0) - event.getY(1);
 		return FloatMath.sqrt(x * x + y * y);
 	}
-	*/
 	
 	@Override
 	public boolean onTouch(View v, MotionEvent event) {
@@ -1027,8 +1075,8 @@ public class ZircoMain extends Activity implements IWebEventListener, IToolbarsC
 		final int action = event.getAction();
 		
 		// Get the action that was done on this touch event
-		switch (event.getAction()) {
-		//switch (action & MotionEvent.ACTION_MASK) {
+		//switch (event.getAction()) {
+		switch (action & MotionEvent.ACTION_MASK) {
 		case MotionEvent.ACTION_DOWN: {
 			
 			mGestureMode = GestureMode.SWIP;
@@ -1088,7 +1136,6 @@ public class ZircoMain extends Activity implements IWebEventListener, IToolbarsC
 			break;
 		}
 		
-		/*
 		case MotionEvent.ACTION_POINTER_DOWN: {
 			
 			mOldDistance = computeSpacing(event);
@@ -1136,49 +1183,12 @@ public class ZircoMain extends Activity implements IWebEventListener, IToolbarsC
 			}		
 			break;
 		}
-		*/
 		default: break;
 		}
 
         // if you return false, these actions will not be recorded
         return false;
 
-	}
-	
-	/**
-	 * Load the AdSweep script if necessary.
-	 * @return The AdSweep script.
-	 */
-	private String getAdSweepString() {
-		if (mAdSweepString == null) {
-			InputStream is = getResources().openRawResource(R.raw.adsweep);
-			if (is != null) {
-				StringBuilder sb = new StringBuilder();
-				String line;
-
-				try {
-					BufferedReader reader = new BufferedReader(new InputStreamReader(is, "UTF-8"));
-					while ((line = reader.readLine()) != null) {
-						if ((line.length() > 0) &&
-								(!line.startsWith("//"))) {
-							sb.append(line).append("\n");
-						}
-					}
-				} catch (IOException e) {
-					Log.w("AdSweep", "Unable to load AdSweep: " + e.getMessage());
-				} finally {
-					try {
-						is.close();
-					} catch (IOException e) {
-						Log.w("AdSweep", "Unable to load AdSweep: " + e.getMessage());
-					}
-				}
-				mAdSweepString = sb.toString();
-			} else {        
-				mAdSweepString = "";
-			}
-		}
-		return mAdSweepString;
 	}
 	
 	/**
@@ -1212,8 +1222,10 @@ public class ZircoMain extends Activity implements IWebEventListener, IToolbarsC
 						
 			if ((Controller.getInstance().getPreferences().getBoolean(Constants.PREFERENCES_ADBLOCKER_ENABLE, true)) &&
 					(!checkInAdBlockWhiteList(mCurrentWebView.getUrl()))) {
-				mCurrentWebView.loadUrl(getAdSweepString());
+				mCurrentWebView.loadAdSweep();
 			}
+			
+			new Thread(new BookmarkThumbnailUpdater(this, mCurrentWebView)).start();
 			
 		} else if (event.equals(EventConstants.EVT_WEB_ON_PAGE_STARTED)) {
 			
@@ -1230,7 +1242,7 @@ public class ZircoMain extends Activity implements IWebEventListener, IToolbarsC
 			
 			setToolbarsVisibility(true);
 			
-		} else if (event.equals(EventConstants.EVT_YOUTUBE_VIDEO)) {
+		} else if (event.equals(EventConstants.EVT_VND_URL)) {
 			
 			try {
 				
@@ -1239,10 +1251,10 @@ public class ZircoMain extends Activity implements IWebEventListener, IToolbarsC
 				
 			} catch (Exception e) {
 				
-				// Notify user that the Youtube video cannot be viewed.
+				// Notify user that the vnd url cannot be viewed.
 				new AlertDialog.Builder(this)
-				.setTitle(R.string.Main_YoutubeErrorTitle)
-				.setMessage(R.string.Main_YoutubeErrorMessage)
+				.setTitle(R.string.Main_VndErrorTitle)
+				.setMessage(String.format(getString(R.string.Main_VndErrorMessage), (String) data))
 				.setPositiveButton(android.R.string.ok,
 						new AlertDialog.OnClickListener()
 				{

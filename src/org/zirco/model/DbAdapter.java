@@ -15,6 +15,7 @@
 
 package org.zirco.model;
 
+import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -27,6 +28,7 @@ import android.content.Context;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
+import android.graphics.Bitmap;
 import android.preference.PreferenceManager;
 import android.util.Log;
 
@@ -38,12 +40,13 @@ public class DbAdapter {
 	private static final String TAG = "DbAdapter";
 
 	private static final String DATABASE_NAME = "ZIRCO";
-	private static final int DATABASE_VERSION = 1;
+	private static final int DATABASE_VERSION = 2;
 	
 	public static final String BOOKMARKS_ROWID = "_id";
 	public static final String BOOKMARKS_TITLE = "title";
 	public static final String BOOKMARKS_URL = "url";
-	public static final String BOOKMARKS_CREATION_DATE = "creation_date";	
+	public static final String BOOKMARKS_CREATION_DATE = "creation_date";
+	public static final String BOOKMARKS_THUMBNAIL = "thumbnail";
 	
     private static final String BOOKMARKS_DATABASE_TABLE = "BOOKMARKS";    
     
@@ -51,7 +54,8 @@ public class DbAdapter {
     	+ BOOKMARKS_ROWID + " INTEGER PRIMARY KEY AUTOINCREMENT, "
     	+ BOOKMARKS_TITLE + " TEXT, "
     	+ BOOKMARKS_URL + " TEXT NOT NULL, "
-    	+ BOOKMARKS_CREATION_DATE + " DATE);";
+    	+ BOOKMARKS_CREATION_DATE + " DATE, "
+    	+ BOOKMARKS_THUMBNAIL + " BLOB);";
     
     public static final String HISTORY_ROWID = "_id";
 	public static final String HISTORY_TITLE = "title";
@@ -69,14 +73,14 @@ public class DbAdapter {
 	private DatabaseHelper mDbHelper;
     private SQLiteDatabase mDb;
     
-    private final Context mCtx;
+    private final Context mContext;
     
     /**
      * Constructor.
      * @param ctx The current context.
      */
     public DbAdapter(Context ctx) {
-        this.mCtx = ctx;
+        this.mContext = ctx;
     }
     
     /**
@@ -84,7 +88,7 @@ public class DbAdapter {
      * @return The current database adapter.
      */
     public DbAdapter open() {
-        mDbHelper = new DatabaseHelper(mCtx);
+        mDbHelper = new DatabaseHelper(mContext);
         mDb = mDbHelper.getWritableDatabase();
         return this;
     }
@@ -102,7 +106,7 @@ public class DbAdapter {
      */    
     public Cursor fetchBookmarks() {
     	String orderClause;
-    	switch (PreferenceManager.getDefaultSharedPreferences(mCtx).getInt(Constants.PREFERENCES_BOOKMARKS_SORT_MODE, 0)) {
+    	switch (PreferenceManager.getDefaultSharedPreferences(mContext).getInt(Constants.PREFERENCES_BOOKMARKS_SORT_MODE, 0)) {
     	case 0:
     		orderClause = BOOKMARKS_TITLE + " COLLATE NOCASE";
     		break;
@@ -115,7 +119,23 @@ public class DbAdapter {
     	}
     	
     	return mDb.query(BOOKMARKS_DATABASE_TABLE,
-    			new String[] {BOOKMARKS_ROWID, BOOKMARKS_TITLE, BOOKMARKS_URL}, null, null, null, null, orderClause);
+    			new String[] {BOOKMARKS_ROWID, BOOKMARKS_TITLE, BOOKMARKS_URL, BOOKMARKS_CREATION_DATE, BOOKMARKS_THUMBNAIL}, null, null, null, null, orderClause);
+    }
+    
+    /**
+     * Get a cursor on a specific bookmark, given its url.
+     * @param originalUrl The original url to search for.
+     * @param loadedUrl The loaded url to search for.
+     * @return The query result.
+     */
+    public Cursor getBookmarkFromUrl(String originalUrl, String loadedUrl) {
+    	String whereClause = "(" + BOOKMARKS_URL + " = \"" + originalUrl + "\") OR ("
+    		+ BOOKMARKS_URL + " = \"" + loadedUrl + "\")";
+    	
+    	return mDb.query(BOOKMARKS_DATABASE_TABLE,
+    			new String[] {BOOKMARKS_ROWID, BOOKMARKS_TITLE, BOOKMARKS_URL, BOOKMARKS_CREATION_DATE},
+    			whereClause,
+    			null, null, null, null);
     }
     
     /**
@@ -125,10 +145,21 @@ public class DbAdapter {
      * @return The new bookmark id.
      */
     public long addBookmark(String title, String url) {
+        return addBookmark(title, url, DateUtils.getNow(mContext));
+    }
+    
+    /**
+     * Add a bookmark to database.
+     * @param title The title.
+     * @param url The url.
+     * @param creationDate The creation date.
+     * @return The new bookmark id.
+     */
+    public long addBookmark(String title, String url, String creationDate) {
     	ContentValues initialValues = new ContentValues();
     	initialValues.put(BOOKMARKS_TITLE, title);
         initialValues.put(BOOKMARKS_URL, url);
-        initialValues.put(BOOKMARKS_CREATION_DATE, DateUtils.getNow(mCtx));
+        initialValues.put(BOOKMARKS_CREATION_DATE, creationDate);
         
         return mDb.insert(BOOKMARKS_DATABASE_TABLE, null, initialValues);
     }
@@ -146,6 +177,23 @@ public class DbAdapter {
         args.put(BOOKMARKS_URL, url);
 
         return mDb.update(BOOKMARKS_DATABASE_TABLE, args, BOOKMARKS_ROWID + "=" + rowId, null) > 0;
+    }
+    
+    /**
+     * Update the thumbnail for the given bookmark.
+     * @param rowId The bookmark id.
+     * @param bm The thumbnail.
+     * @return True if the update succeeded.
+     */
+    public boolean updateBookmarkThumbnail(long rowId, Bitmap bm) {
+    	
+    	ByteArrayOutputStream os = new ByteArrayOutputStream();    	
+    	bm.compress(Bitmap.CompressFormat.PNG, 100, os);
+    	
+    	ContentValues args = new ContentValues();
+    	args.put(BOOKMARKS_THUMBNAIL, os.toByteArray());
+    	
+    	return mDb.update(BOOKMARKS_DATABASE_TABLE, args, BOOKMARKS_ROWID + "=" + rowId, null) > 0;
     }
     
     /**
@@ -220,7 +268,7 @@ public class DbAdapter {
     	List<HistoryItem> items;
     	Cursor cursor;
     	
-    	int historyLimit = Integer.parseInt(PreferenceManager.getDefaultSharedPreferences(mCtx).getString(Constants.PREFERENCES_BROWSER_HISTORY_SIZE, "5"));
+    	int historyLimit = Integer.parseInt(PreferenceManager.getDefaultSharedPreferences(mContext).getString(Constants.PREFERENCES_BROWSER_HISTORY_SIZE, "5"));
     	
     	long id;
     	String title;
@@ -231,8 +279,8 @@ public class DbAdapter {
     		
     		cursor = mDb.query(HISTORY_DATABASE_TABLE,
         			new String[] {HISTORY_ROWID, HISTORY_TITLE, HISTORY_URL, HISTORY_LAST_VISITED_DATE},
-        			"(" + HISTORY_LAST_VISITED_DATE + " <= \"" + DateUtils.getDateAsUniversalString(mCtx, lastDate) + "\") AND " + 
-        			"(" + HISTORY_LAST_VISITED_DATE + " > \"" + DateUtils.getDateAsUniversalString(mCtx, currentDate) + "\")",
+        			"(" + HISTORY_LAST_VISITED_DATE + " <= \"" + DateUtils.getDateAsUniversalString(mContext, lastDate) + "\") AND " + 
+        			"(" + HISTORY_LAST_VISITED_DATE + " > \"" + DateUtils.getDateAsUniversalString(mContext, currentDate) + "\")",
         			null, null, null, HISTORY_LAST_VISITED_DATE + " DESC");
     		
     		items = new ArrayList<HistoryItem>();
@@ -293,14 +341,14 @@ public class DbAdapter {
     	if (existingId != -1) {
     		ContentValues args = new ContentValues();
             args.put(HISTORY_TITLE, title);            
-            args.put(HISTORY_LAST_VISITED_DATE, DateUtils.getNow(mCtx));
+            args.put(HISTORY_LAST_VISITED_DATE, DateUtils.getNow(mContext));
 
             mDb.update(HISTORY_DATABASE_TABLE, args, HISTORY_ROWID + "=" + existingId, null);
     	} else {
     		ContentValues initialValues = new ContentValues();
         	initialValues.put(HISTORY_TITLE, title);
             initialValues.put(HISTORY_URL, url);
-            initialValues.put(HISTORY_LAST_VISITED_DATE, DateUtils.getNow(mCtx));
+            initialValues.put(HISTORY_LAST_VISITED_DATE, DateUtils.getNow(mContext));
             
             mDb.insert(HISTORY_DATABASE_TABLE, null, initialValues);
     	}
@@ -325,7 +373,7 @@ public class DbAdapter {
      * Delete all records from history witch have a visited date prior to the history max age.
      */
     public void truncateHistory() {
-    	mDb.execSQL("DELETE FROM " + HISTORY_DATABASE_TABLE + " WHERE " + HISTORY_LAST_VISITED_DATE + " < \"" + DateUtils.getHistoryLimit(mCtx) + "\";");
+    	mDb.execSQL("DELETE FROM " + HISTORY_DATABASE_TABLE + " WHERE " + HISTORY_LAST_VISITED_DATE + " < \"" + DateUtils.getHistoryLimit(mContext) + "\";");
     }
     
     /**
@@ -348,14 +396,17 @@ public class DbAdapter {
 		}
 
 		@Override
-		public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-			Log.w(TAG, "Upgrading database from version " + oldVersion + " to "
-                    + newVersion + ", which will destroy all old data");
+		public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {			
 			
-            db.execSQL("DROP TABLE IF EXISTS " + BOOKMARKS_DATABASE_TABLE);
-            db.execSQL("DROP TABLE IF EXISTS " + HISTORY_DATABASE_TABLE);
-            
-            onCreate(db);
+			Log.d(TAG, "Upgrading database.");
+			
+            //db.execSQL("DROP TABLE IF EXISTS " + BOOKMARKS_DATABASE_TABLE);
+            //db.execSQL("DROP TABLE IF EXISTS " + HISTORY_DATABASE_TABLE);
+			
+			switch (oldVersion) {
+			case 1: db.execSQL("ALTER TABLE " + BOOKMARKS_DATABASE_TABLE + " ADD " + BOOKMARKS_THUMBNAIL + " BLOB;"); break;
+			default: break;
+			}
 		}
     	
     }

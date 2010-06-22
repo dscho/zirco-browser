@@ -50,13 +50,14 @@ public class ZircoWebViewClient extends WebViewClient {
 	@Override
 	public boolean shouldOverrideUrlLoading(WebView view, String url) {
 		
-		if (url.startsWith("vnd.youtube")) {
+		if (url.startsWith("vnd.")) {
 			
-			EventController.getInstance().fireWebEvent(EventConstants.EVT_YOUTUBE_VIDEO, url);						
+			EventController.getInstance().fireWebEvent(EventConstants.EVT_VND_URL, url);						
 			return true;
 			
 		} else {
 		
+			((ZircoWebView) view).resetLoadedUrl();
 			EventController.getInstance().fireWebEvent(EventConstants.EVT_WEB_ON_URL_LOADING, url);				
 			return false;
 		}
