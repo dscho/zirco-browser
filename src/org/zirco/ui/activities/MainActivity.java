@@ -31,6 +31,7 @@ import org.zirco.events.IDownloadEventsListener;
 import org.zirco.model.adapters.UrlSuggestionCursorAdapter;
 import org.zirco.model.items.DownloadItem;
 import org.zirco.providers.BookmarksProviderWrapper;
+import org.zirco.providers.BookmarksProviderWrapper.BookmarksSource;
 import org.zirco.ui.activities.preferences.PreferencesActivity;
 import org.zirco.ui.components.CustomPagerAdapter;
 import org.zirco.ui.components.CustomViewPager;
@@ -49,7 +50,9 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.SharedPreferences.Editor;
+import android.content.SharedPreferences.OnSharedPreferenceChangeListener;
 import android.content.res.Configuration;
 import android.database.Cursor;
 import android.graphics.Bitmap;
@@ -59,11 +62,12 @@ import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Message;
 import android.preference.PreferenceManager;
 import android.support.v4.view.ViewPager.OnPageChangeListener;
 import android.text.Editable;
 import android.text.TextWatcher;
-import android.util.Log;
 import android.view.GestureDetector;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
@@ -79,6 +83,7 @@ import android.view.inputmethod.InputMethodManager;
 import android.webkit.ValueCallback;
 import android.webkit.WebIconDatabase;
 import android.widget.AutoCompleteTextView;
+import android.widget.EditText;
 import android.widget.FilterQueryProvider;
 import android.widget.ImageButton;
 import android.widget.ImageView;
@@ -117,6 +122,14 @@ public class MainActivity extends Activity implements IToolbarsContainer, OnTouc
 	private LinearLayout mTopBar;
 	private LinearLayout mBottomBar;
 	
+	private LinearLayout mFindBar;
+	
+	private ImageButton mFindPreviousButton;
+	private ImageButton mFindNextButton;
+	private ImageButton mFindCloseButton;
+	
+	private EditText mFindText;
+	
 	private ImageView mPreviousTabView;
 	private ImageView mNextTabView;
 	
@@ -127,9 +140,9 @@ public class MainActivity extends Activity implements IToolbarsContainer, OnTouc
 	
 	private ImageView mBubbleRightView;
 	private ImageView mBubbleLeftView;
-
-	private List<CustomWebView> mWebViews;
+	
 	private CustomWebView mCurrentWebView;
+	private List<CustomWebView> mWebViews;
 	
 	private ImageButton mPreviousButton;
 	private ImageButton mNextButton;
@@ -143,10 +156,13 @@ public class MainActivity extends Activity implements IToolbarsContainer, OnTouc
 	
 	private boolean mUrlBarVisible;
 	private boolean mToolsActionGridVisible = false;
+	private boolean mFindDialogVisible = false;
 	
 	private TextWatcher mUrlTextWatcher;
 	
 	private HideToolbarsRunnable mHideToolbarsRunnable;
+	
+	//private ViewFlipper mViewFlipper;
 	
 	private CustomViewPager mViewPager;
 	private CustomPagerAdapter mPagerAdapter;
@@ -160,6 +176,8 @@ public class MainActivity extends Activity implements IToolbarsContainer, OnTouc
 	private QuickActionGrid mToolsActionGrid;
 	
 	private ValueCallback<Uri> mUploadMessage;
+	
+	private OnSharedPreferenceChangeListener mPreferenceChangeListener;
 	
 	private enum SwitchTabsMethod {
 		BUTTONS,
@@ -197,9 +215,14 @@ public class MainActivity extends Activity implements IToolbarsContainer, OnTouc
         
         mInflater = (LayoutInflater) getSystemService(Context.LAYOUT_INFLATER_SERVICE);
         
-        buildComponents();   
+        buildComponents();                
+        
+        //mViewFlipper.removeAllViews();   
         
         updateSwitchTabsMethod();
+        updateBookmarksDatabaseSource();
+        
+        registerPreferenceChangeListener();
         
         Intent i = getIntent();
         if (i.getData() != null) {
@@ -225,7 +248,7 @@ public class MainActivity extends Activity implements IToolbarsContainer, OnTouc
         	
         	addFirstTab(true);
         }
-               
+        
         initializeWebIconDatabase();
         
         startToolbarsHideRunnable();
@@ -245,9 +268,13 @@ public class MainActivity extends Activity implements IToolbarsContainer, OnTouc
 	protected void onDestroy() {
 		WebIconDatabase.getInstance().close();
 		
-		if (PreferenceManager.getDefaultSharedPreferences(this).getBoolean(Constants.PREFERENCES_PRIVACY_CLEAR_CACHE_ON_EXIT, false)) {			
+		if (PreferenceManager.getDefaultSharedPreferences(this).getBoolean(Constants.PREFERENCES_PRIVACY_CLEAR_CACHE_ON_EXIT, false)) {
 			mCurrentWebView.clearCache(true);
 		}
+		
+		EventController.getInstance().removeDownloadListener(this);
+		
+		PreferenceManager.getDefaultSharedPreferences(this).unregisterOnSharedPreferenceChangeListener(mPreferenceChangeListener);
 
 		super.onDestroy();
 	}
@@ -266,7 +293,7 @@ public class MainActivity extends Activity implements IToolbarsContainer, OnTouc
 		setIntent(intent);
 		
 		super.onNewIntent(intent);
-	}
+	}        
     
     /**
      * Restart the application.
@@ -286,6 +313,7 @@ public class MainActivity extends Activity implements IToolbarsContainer, OnTouc
 		mToolsActionGrid = new QuickActionGrid(this);
 		mToolsActionGrid.addQuickAction(new QuickAction(this, R.drawable.ic_btn_home, R.string.QuickAction_Home));
 		mToolsActionGrid.addQuickAction(new QuickAction(this, R.drawable.ic_btn_share, R.string.QuickAction_Share));
+		mToolsActionGrid.addQuickAction(new QuickAction(this, R.drawable.ic_btn_find, R.string.QuickAction_Find));
 		mToolsActionGrid.addQuickAction(new QuickAction(this, R.drawable.ic_btn_select, R.string.QuickAction_SelectText));
 		mToolsActionGrid.addQuickAction(new QuickAction(this, R.drawable.ic_btn_mobile_view, R.string.QuickAction_MobileView));
 		
@@ -299,10 +327,16 @@ public class MainActivity extends Activity implements IToolbarsContainer, OnTouc
 				case 1:
 					ApplicationUtils.sharePage(MainActivity.this, mCurrentWebView.getTitle(), mCurrentWebView.getUrl());
 					break;
-				case 2:
-					swithToSelectAndCopyTextMode();
+				case 2:					
+					// Somewhat dirty hack: when the find dialog was shown from a QuickAction,
+					// the soft keyboard did not show... Hack is to wait a little before showing
+					// the file dialog through a thread.
+					startShowFindDialogRunnable();
 					break;
 				case 3:
+					swithToSelectAndCopyTextMode();
+					break;
+				case 4:
 					String currentUrl = mUrlEditText.getText().toString();
 		    		
 		    		// Do not reload mobile view if already on it.
@@ -314,7 +348,7 @@ public class MainActivity extends Activity implements IToolbarsContainer, OnTouc
 				}
 			}
 		});
-		
+				
 		mToolsActionGrid.setOnDismissListener(new PopupWindow.OnDismissListener() {			
 			@Override
 			public void onDismiss() {
@@ -348,12 +382,13 @@ public class MainActivity extends Activity implements IToolbarsContainer, OnTouc
 		});
     	mBubbleLeftView.setVisibility(View.GONE);
     	
+    	//mViewFlipper = (ViewFlipper) findViewById(R.id.ViewFlipper);
     	mViewPager = (CustomViewPager) findViewById(R.id.ViewPager);
     	mViewPager.setOnPageChangeListener(new OnPageChangeListener() {
 			
 			@Override
 			public void onPageSelected(int arg0) {				
-				Log.d("onPageSelected", Integer.toString(arg0));
+				//Log.d("onPageSelected", Integer.toString(arg0));
 				CustomWebView oldWebView = mPagerAdapter.getWebViewAtIndex(mCurrentDisplayedViewIndex);				
 				mCurrentDisplayedViewIndex = arg0;				
 				mCurrentWebView = mPagerAdapter.getWebViewAtIndex(mCurrentDisplayedViewIndex);
@@ -393,7 +428,10 @@ public class MainActivity extends Activity implements IToolbarsContainer, OnTouc
 			public void onClick(View v) {
 				// Dummy event to steel it from the WebView, in case of clicking between the buttons.				
 			}
-		});   
+		});
+    	
+    	mFindBar = (LinearLayout) findViewById(R.id.findControls);
+    	mFindBar.setVisibility(View.GONE);
     	
     	mPreviousTabView = (ImageView) findViewById(R.id.PreviousTabView);
     	mPreviousTabView.setOnClickListener(new View.OnClickListener() {			
@@ -458,7 +496,8 @@ public class MainActivity extends Activity implements IToolbarsContainer, OnTouc
 				return false;
 			}
     		
-    	});    	
+    	});
+    	
 
     	mUrlTextWatcher = new TextWatcher() {			
     		@Override
@@ -549,9 +588,66 @@ public class MainActivity extends Activity implements IToolbarsContainer, OnTouc
             	onQuickButton();
             }          
         });
+		
+		mFindPreviousButton = (ImageButton) findViewById(R.id.find_previous);
+		mFindPreviousButton.setOnClickListener(new OnClickListener() {
+			
+			@Override
+			public void onClick(View v) {
+				mCurrentWebView.findNext(false);
+				hideKeyboardFromFindDialog();
+			}
+		});
+		
+		mFindNextButton = (ImageButton) findViewById(R.id.find_next);
+		mFindNextButton.setOnClickListener(new OnClickListener() {
+			
+			@Override
+			public void onClick(View v) {
+				mCurrentWebView.findNext(true);
+				hideKeyboardFromFindDialog();
+			}
+		});
+		
+		mFindCloseButton = (ImageButton) findViewById(R.id.find_close);
+		mFindCloseButton.setOnClickListener(new OnClickListener() {
+			
+			@Override
+			public void onClick(View v) {
+				closeFindDialog();
+			}
+		});
+		
+		mFindText = (EditText) findViewById(R.id.find_value);
+		mFindText.addTextChangedListener(new TextWatcher() {
+			
+			@Override
+			public void onTextChanged(CharSequence s, int start, int before, int count) {
+				doFind();
+			}
+			
+			@Override
+			public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+			
+			@Override
+			public void afterTextChanged(Editable s) { }
+		});
 
     }
     	
+	private void registerPreferenceChangeListener() {
+    	mPreferenceChangeListener = new OnSharedPreferenceChangeListener() {			
+			@Override
+			public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
+				if (key.equals(Constants.PREFERENCE_BOOKMARKS_DATABASE)) {
+					updateBookmarksDatabaseSource();
+				}
+			}
+		};
+		
+		PreferenceManager.getDefaultSharedPreferences(this).registerOnSharedPreferenceChangeListener(mPreferenceChangeListener);
+    }
+	
     /**
      * Apply preferences to the current UI objects.
      */
@@ -584,6 +680,16 @@ public class MainActivity extends Activity implements IToolbarsContainer, OnTouc
     		mViewPager.setFlingAllowed(true);
     	} else {
     		mViewPager.setFlingAllowed(false);
+    	}
+    }
+    
+    private void updateBookmarksDatabaseSource() { 
+    	String source = PreferenceManager.getDefaultSharedPreferences(this).getString(Constants.PREFERENCE_BOOKMARKS_DATABASE, "STOCK");
+    	
+    	if (source.equals("STOCK")) {
+    		BookmarksProviderWrapper.setBookmarksSource(BookmarksSource.STOCK);
+    	} else if (source.equals("INTERNAL")) {
+    		BookmarksProviderWrapper.setBookmarksSource(BookmarksSource.INTERNAL);
     	}
     }
     
@@ -654,7 +760,10 @@ public class MainActivity extends Activity implements IToolbarsContainer, OnTouc
      * @param parentIndex The index of the new tab.
      */
     private void addTab(boolean navigateToHome, int parentIndex) {
-   	
+    	if (mFindDialogVisible) {
+    		closeFindDialog();
+    	}
+    	
     	int newIndex = mPagerAdapter.addPage(parentIndex);
     	mViewPager.setCurrentItem(newIndex);
     	
@@ -676,6 +785,10 @@ public class MainActivity extends Activity implements IToolbarsContainer, OnTouc
      */
     private void removeCurrentTab() {
     	
+    	if (mFindDialogVisible) {
+    		closeFindDialog();
+    	}
+    	
     	mPagerAdapter.removePage(mCurrentDisplayedViewIndex);
     	
     	// We need to do this when the removed tab is the first one. In this case, the page selected event is not triggered,
@@ -686,6 +799,58 @@ public class MainActivity extends Activity implements IToolbarsContainer, OnTouc
     	updatePreviousNextTabViewsVisibility();
     	
     	mUrlEditText.clearFocus();
+    }
+    
+    private void doFind() {
+		CharSequence find = mFindText.getText();
+		if (find.length() == 0) {
+			mFindPreviousButton.setEnabled(false);
+			mFindNextButton.setEnabled(false);
+			mCurrentWebView.clearMatches();
+		} else {
+			int found = mCurrentWebView.findAll(find.toString());
+			if (found < 2) {
+				mFindPreviousButton.setEnabled(false);
+				mFindNextButton.setEnabled(false);
+			} else {
+				mFindPreviousButton.setEnabled(true);
+				mFindNextButton.setEnabled(true);
+			}
+		}
+	}
+	
+	private void showFindDialog() {
+		setFindBarVisibility(true);
+		mCurrentWebView.doSetFindIsUp(true);
+		CharSequence text = mFindText.getText();
+		if (text.length() > 0) {
+			mFindText.setSelection(0, text.length());
+			doFind();
+		} else {
+			mFindPreviousButton.setEnabled(false);
+			mFindNextButton.setEnabled(false);
+		}
+				
+		mFindText.requestFocus();
+		showKeyboardForFindDialog();		
+	}
+	
+	private void closeFindDialog() {
+		hideKeyboardFromFindDialog();
+		mCurrentWebView.doNotifyFindDialogDismissed();
+		setFindBarVisibility(false);
+	}
+    
+    private void setFindBarVisibility(boolean visible) {
+    	if (visible) {
+    		mFindBar.startAnimation(AnimationManager.getInstance().getTopBarShowAnimation());
+    		mFindBar.setVisibility(View.VISIBLE);    		
+    		mFindDialogVisible = true;
+    	} else {
+    		mFindBar.startAnimation(AnimationManager.getInstance().getTopBarHideAnimation());
+    		mFindBar.setVisibility(View.GONE);
+    		mFindDialogVisible = false;
+    	}
     }
     
     /**
@@ -785,6 +950,16 @@ public class MainActivity extends Activity implements IToolbarsContainer, OnTouc
     	}
     }
     
+    private void showKeyboardForFindDialog() {
+    	InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+    	imm.showSoftInput(mFindText, InputMethodManager.SHOW_IMPLICIT);
+    }
+    
+    private void hideKeyboardFromFindDialog() {
+    	InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+    	imm.hideSoftInputFromWindow(mFindText.getWindowToken(), 0);
+    }
+    
     /**
      * Hide the keyboard.
      * @param delayedHideToolbars If True, will start a runnable to delay tool bars hiding. If False, tool bars are hidden immediatly.
@@ -800,6 +975,33 @@ public class MainActivity extends Activity implements IToolbarsContainer, OnTouc
     			setToolbarsVisibility(false);
     		}
     	}
+    }
+    
+    /**
+     * Thread to delay the show of the find dialog. This seems to be necessary when shown from
+     * a QuickAction. If not, the keyboard does not show. 50ms seems to be enough on
+     * a Nexus One and on the (rather) slow emulator. Dirty hack :(
+     */
+    private void startShowFindDialogRunnable() {
+    	new Thread(new Runnable() {
+			
+    		private Handler mHandler = new Handler() {
+    			public void handleMessage(Message msg) {
+    				showFindDialog();
+    			}
+    		};
+    		
+			@Override
+			public void run() {
+				try {
+					Thread.sleep(50);
+					mHandler.sendEmptyMessage(0);					
+				} catch (InterruptedException e) {
+					mHandler.sendEmptyMessage(0);
+				}
+				
+			}
+		}).start();
     }
     
     /**
@@ -927,13 +1129,21 @@ public class MainActivity extends Activity implements IToolbarsContainer, OnTouc
 		
 		switch (keyCode) {
 		case KeyEvent.KEYCODE_BACK:
-			if (mCurrentWebView.canGoBack()) {
-				mCurrentWebView.goBack();				
+			if (mFindDialogVisible) {
+				closeFindDialog();
 			} else {
-				this.moveTaskToBack(true);
+				if (mCurrentWebView.canGoBack()) {
+					mCurrentWebView.goBack();				
+				} else {
+					this.moveTaskToBack(true);
+				}
 			}
 			return true;
-		
+		case KeyEvent.KEYCODE_SEARCH:
+			if (!mFindDialogVisible) {
+				showFindDialog();
+			}
+			return true;
 		default: return super.onKeyUp(keyCode, event);
 		}
 	}
@@ -1068,7 +1278,7 @@ public class MainActivity extends Activity implements IToolbarsContainer, OnTouc
 		
 		mPreviousButton.setEnabled(mCurrentWebView.canGoBack());
 		mNextButton.setEnabled(mCurrentWebView.canGoForward());
-
+		
 		mRemoveTabButton.setEnabled(mPagerAdapter.getCount() > 1);
 		
 		mProgressBar.setProgress(mCurrentWebView.getProgress());
@@ -1255,9 +1465,7 @@ public class MainActivity extends Activity implements IToolbarsContainer, OnTouc
 	 * Show the previous tab, if any.
 	 */
 	private void showPreviousTab(boolean resetToolbarsRunnable) {
-		
-		if (mPagerAdapter.getCount() > 1) {
-		
+		if (mPagerAdapter.getCount() > 1) {			
 			mViewPager.setCurrentItem(mCurrentDisplayedViewIndex - 1);
 		}
 	}
@@ -1266,10 +1474,8 @@ public class MainActivity extends Activity implements IToolbarsContainer, OnTouc
 	 * Show the next tab, if any.
 	 */
 	private void showNextTab(boolean resetToolbarsRunnable) {
-		
 		if ((mPagerAdapter.getCount() > 1) &&
 				(mCurrentDisplayedViewIndex < mPagerAdapter.getCount() - 1)) {
-
 			mViewPager.setCurrentItem(mCurrentDisplayedViewIndex + 1);
 		}
 	}
@@ -1320,6 +1526,10 @@ public class MainActivity extends Activity implements IToolbarsContainer, OnTouc
 	}
 	
 	public void onPageStarted(String url) {
+		if (mFindDialogVisible) {
+			closeFindDialog();
+		}
+		
 		mUrlEditText.removeTextChangedListener(mUrlTextWatcher);
 		mUrlEditText.setText(url);
 		mUrlEditText.addTextChangedListener(mUrlTextWatcher);
@@ -1341,7 +1551,7 @@ public class MainActivity extends Activity implements IToolbarsContainer, OnTouc
 		startActivity(sendMail);
 	}
 	
-	public void onVndUrl(String url) {
+	public void onExternalApplicationUrl(String url) {
 		try {
 			
 			Intent i  = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
@@ -1362,6 +1572,10 @@ public class MainActivity extends Activity implements IToolbarsContainer, OnTouc
 			.create()
 			.show();
 		}
+	}
+	
+	public void setHttpAuthUsernamePassword(String host, String realm, String username, String password) {
+		mCurrentWebView.setHttpAuthUsernamePassword(host, realm, username, password);
 	}
 	
 	@Override
@@ -1419,7 +1633,7 @@ public class MainActivity extends Activity implements IToolbarsContainer, OnTouc
 				Toast.makeText(this, getString(R.string.Main_DownloadErrorMsg, item.getErrorMessage()), Toast.LENGTH_SHORT).show();
 			}
 		}			
-	}	
+	}
 	
 	public int getCurrentDisplayedViewIndex() {
 		return mCurrentDisplayedViewIndex;
@@ -1438,7 +1652,30 @@ public class MainActivity extends Activity implements IToolbarsContainer, OnTouc
 		public boolean onDoubleTap(MotionEvent e) {
 			mCurrentWebView.zoomIn();
 			return super.onDoubleTap(e);
-		}		
+		}
+
+//		@Override
+//		public boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX,	float velocityY) {
+//			if (isSwitchTabsByFlingEnabled()) {
+//				if (e2.getEventTime() - e1.getEventTime() <= FLIP_TIME_THRESHOLD) {
+//					if (e2.getX() > (e1.getX() + FLIP_PIXEL_THRESHOLD)) {						
+//
+//						showPreviousTab(false);
+//						return false;
+//					}
+//
+//					// going forwards: pushing stuff to the left
+//					if (e2.getX() < (e1.getX() - FLIP_PIXEL_THRESHOLD)) {					
+//
+//						showNextTab(false);
+//						return false;
+//					}
+//				}
+//			}
+//			
+//			return super.onFling(e1, e2, velocityX, velocityY);
+//		}
+		
 	}
 	
 }

@@ -143,7 +143,7 @@ public class CustomWebChromeClient extends WebChromeClient {
 	public boolean onJsPrompt(WebView view, String url, String message, String defaultValue, final JsPromptResult result) {
 		
 		final LayoutInflater factory = LayoutInflater.from(mParentActivity);
-        final View v = factory.inflate(R.layout.javascriptpromptdialog, null);
+        final View v = factory.inflate(R.layout.javascript_prompt_dialog, null);
         ((TextView) v.findViewById(R.id.JavaScriptPromptMessage)).setText(message);
         ((EditText) v.findViewById(R.id.JavaScriptPromptInput)).setText(defaultValue);
 
